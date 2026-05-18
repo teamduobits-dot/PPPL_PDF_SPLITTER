@@ -1,0 +1,83 @@
+Yes ✅ If Python is NOT installed on that PC, you can install it using direct PowerShell commands.
+
+Below are two direct options:
+
+Option A (best): winget (one command)
+Option B (works without winget): download Python installer and silent-install
+Then we install all requirements and run the app.
+
+Step 0) Open PowerShell as Administrator
+Right-click PowerShell → Run as administrator.
+
+Option A) Install Python using winget (recommended)
+1) Check winget
+PowerShell
+
+winget --version
+If it shows a version → proceed.
+
+2) Install Python 3.11 (silent)
+PowerShell
+
+winget install -e --id Python.Python.3.11 -h
+3) Restart PowerShell
+Close and reopen PowerShell, then run:
+
+PowerShell
+
+python --version
+Option B) Python install WITHOUT winget (direct download + silent install)
+If winget --version fails, use this:
+
+1) Download Python installer
+PowerShell
+
+$Url  = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe"
+$Out = "$env:TEMP\python-3.11.9-amd64.exe"
+Invoke-WebRequest -Uri $Url -OutFile $Out
+2) Silent install (adds to PATH for easy use)
+PowerShell
+
+Start-Process -FilePath $Out -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_test=0 Include_doc=0" -Wait
+3) Restart PowerShell, then verify:
+PowerShell
+
+python --version
+Install ALL dependencies + run app (one-by-one)
+Run these after Python is working.
+
+Step 1) Go to project folder
+PowerShell
+
+cd "D:\aditya\DuoBits Projects\PPPL-PDF-Splitter"
+Step 2) Create virtual environment
+PowerShell
+
+python -m venv .venv
+Step 3) Activate venv
+PowerShell
+
+.\.venv\Scripts\Activate.ps1
+Step 4) Install requirements (ALL packages)
+PowerShell
+
+python -m pip install --upgrade pip
+pip install -r .\requirements.txt
+Step 5) Quick import test (optional but helpful)
+PowerShell
+
+python -c "import fitz, pypdf, PySide6; print('OK: imports working')"
+Step 6) Run the app
+PowerShell
+
+python .\main.py
+If you get an error installing PySide6 / PyMuPDF
+Usually the fix is to install Visual C++ Runtime. Tell me the exact error text and I’ll give the exact command for that PC.
+
+Quick question (so I tailor perfectly)
+On the target PCs, does this command work?
+
+PowerShell
+
+winget --version
+Reply Yes or No, and I’ll give you the best single “one script” installer approach for that scenario.

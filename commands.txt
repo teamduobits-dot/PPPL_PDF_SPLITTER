@@ -1,0 +1,8 @@
+
+file run 
+python ".\main.py"
+
+
+
+env activation
+.\.venv\Scripts\Activate.ps1
