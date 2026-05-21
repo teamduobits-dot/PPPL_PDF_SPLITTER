@@ -11,3 +11,4 @@ PySide6_Essentials==6.11.1
 pywin32-ctypes==0.2.3
 setuptools==82.0.1
 shiboken6==6.11.1
+pikepdf>=8.0.0

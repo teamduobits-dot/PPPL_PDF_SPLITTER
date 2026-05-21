@@ -1,7 +1,7 @@
 ﻿import os
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-from pypdf import PdfReader, PdfWriter
+from src.core.signature_safe_pdf_splitter import signature_safe_split_keep_pages
 
 
 def split_invoice_groups_to_pdfs(
@@ -12,19 +12,11 @@ def split_invoice_groups_to_pdfs(
     log_cb=None
 ) -> List[str]:
     """
-    Splits the uploaded PDF into one output PDF per invoice group.
-
-    groups item example:
-      {
-        "invoice_int": 586,
-        "invoice_raw": "00586",
-        "page_indices": [0,1,2]
-      }
+    Signature-safe splitting into:
+      {invoice_raw}.pdf
     """
     if not os.path.isdir(output_path):
         raise ValueError("Output path does not exist.")
-
-    reader = PdfReader(file_path)
 
     created_paths: List[str] = []
 
@@ -33,22 +25,16 @@ def split_invoice_groups_to_pdfs(
         page_indices = g["page_indices"]  # expected 0-based indices
         out_file = os.path.join(output_path, f"{invoice_raw}.pdf")
 
-        if os.path.exists(out_file) and not overwrite:
-            if log_cb:
-                log_cb(f"Skipping existing file: {out_file}")
-            continue
+        wrote = signature_safe_split_keep_pages(
+            input_pdf_path=file_path,
+            output_pdf_path=out_file,
+            keep_page_indices=list(page_indices),
+            overwrite=overwrite,
+            incremental=True,
+            log_cb=log_cb
+        )
 
-        if log_cb:
-            log_cb(f"Creating PDF: {invoice_raw}.pdf")
-
-        writer = PdfWriter()
-        for idx in page_indices:
-            # pypdf pages are 0-based
-            writer.add_page(reader.pages[idx])
-
-        with open(out_file, "wb") as f:
-            writer.write(f)
-
-        created_paths.append(out_file)
+        if wrote:
+            created_paths.append(out_file)
 
     return created_paths

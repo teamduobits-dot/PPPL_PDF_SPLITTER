@@ -1,4 +1,4 @@
-﻿import re
+import re
 from dataclasses import dataclass
 from typing import Dict, List, Set
 
@@ -14,7 +14,7 @@ class PdfCandidateResult:
     candidate_count: int
 
 
-PAD_LEN = 5
+PAD_LEN = 0
 MIN_INVOICE_INT = 100
 MAX_INVOICE_INT = 999999
 

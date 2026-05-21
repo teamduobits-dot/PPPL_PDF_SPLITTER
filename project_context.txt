@@ -1,23 +1,425 @@
 
+======================================================
+FILE : .gitignore
+======================================================
 
-============================================================
-FILE: configs\settings.json
-============================================================
+.venv/
+venv/
+__pycache__/
+*.pyc
+dist/
+build/
+*.spec
+configs/settings.json
+.DS_Store
+Thumbs.db
 
+
+
+======================================================
+FILE : commands.txt
+======================================================
+
+
+file run 
+python ".\main.py"
+
+
+
+env activation
+.\.venv\Scripts\Activate.ps1
+
+
+
+======================================================
+FILE : debug_extract.py
+======================================================
+
+import sys
+from src.core.pdf_reader import analyze_pdf_candidates
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: python debug_extract.py <pdf_path>")
+        return
+
+    pdf_path = sys.argv[1]
+    result = analyze_pdf_candidates(pdf_path)
+
+    print("==== Phase 3 Debug Result ====")
+    print("page_count:", result.page_count)
+    print("candidate_count:", result.candidate_count)
+    print("min_invoice_int:", result.min_invoice_int)
+    print("max_invoice_int:", result.max_invoice_int)
+    print("invoice_ids_sample:", result.invoice_ids[:20])
+    print("================================")
+
+if __name__ == "__main__":
+    main()
+
+
+
+======================================================
+FILE : debug_grouping.py
+======================================================
+
+import sys
+from src.core.pdf_reader import analyze_pdf_candidates
+from src.core.invoice_grouping import build_invoice_groups_from_pdf, validate_invoice_range
+
+def main():
+    if len(sys.argv) < 4:
+        print("Usage: python debug_grouping.py <pdf_path> <from_int> <to_int>")
+        return
+
+    pdf_path = sys.argv[1]
+    from_int = int(sys.argv[2])
+    to_int = int(sys.argv[3])
+
+    print("==== Phase 3 candidates ====")
+    cand = analyze_pdf_candidates(pdf_path)
+    print("page_count:", cand.page_count)
+    print("candidate_count:", cand.candidate_count)
+    print("min_invoice_int:", cand.min_invoice_int)
+    print("max_invoice_int:", cand.max_invoice_int)
+    print("invoice_ids (sample):", cand.invoice_ids[:30])
+
+    print("\n==== Phase 4 grouping ====")
+    groups = build_invoice_groups_from_pdf(pdf_path, invoice_ids=cand.invoice_ids)
+    print("groups_count:", len(groups))
+
+    print("\nFirst 10 groups:")
+    for g in groups[:10]:
+        print("invoice_int:", g.invoice_int, "invoice_raw:", g.invoice_raw, "pages:", g.page_indices)
+
+    print("\n==== Phase 4 validate range ====")
+    payload = validate_invoice_range(groups, from_int=from_int, to_int=to_int)
+    print("Validation selected_count:", payload.get("selected_count"))
+    print("pad_len:", payload.get("pad_len"))
+    print("invoice_ids (selected):", payload.get("invoice_ids"))
+    print("warnings:", payload.get("warnings"))
+
+if __name__ == "__main__":
+    main()
+
+
+
+======================================================
+FILE : debug_invoice_label_details.py
+======================================================
+
+import re
+import sys
+import fitz
+
+def normalize_text(t: str) -> str:
+    if not t:
+        return ""
+    t = t.replace("\u00A0", " ")
+    t = t.replace("\\u00A0", " ")
+    t = re.sub(r"\s+", " ", t)
+    return t.strip()
+
+def candidate_ints_from_digit_string_last3to6(ds: str):
+    if not ds or not ds.isdigit():
+        return []
+    out = []
+    for L in range(3, 7):
+        if len(ds) >= L:
+            out.append(int(ds[-L:]))
+    return sorted(set(out))
+
+PATTERNS = [
+    # same style as your current pdf_reader patterns
+    r"(?is)(?:invoice\s*(?:no\.?|number|id))\D{0,20}([0-9]{3,60})",
+    r"(?is)(?:inv\s*\.?\s*no\.?)\D{0,20}([0-9]{3,60})",
+]
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: python debug_invoice_label_details.py <pdf_path>")
+        return
+
+    pdf_path = sys.argv[1]
+    doc = fitz.open(pdf_path)
+    print("PDF:", pdf_path)
+    print("page_count:", doc.page_count)
+    print("--------------------------------------------------")
+
+    for page_index in range(doc.page_count):
+        text = doc.load_page(page_index).get_text("text") or ""
+        text_norm = normalize_text(text)
+
+        matches = []
+        for pat in PATTERNS:
+            matches.extend(re.findall(pat, text_norm))
+
+        if matches:
+            print(f"[Page {page_index+1}] Invoice-like label matches:")
+            for ds in matches:
+                print("  digit_string:", ds)
+                print("  last3to6 ints:", candidate_ints_from_digit_string_last3to6(ds))
+        else:
+            print(f"[Page {page_index+1}] No invoice label matches found by regex.")
+    print("--------------------------------------------------")
+
+if __name__ == "__main__":
+    main()
+
+
+
+======================================================
+FILE : extra commands.txt
+======================================================
+
+Yes ✅ If Python is NOT installed on that PC, you can install it using direct PowerShell commands.
+
+Below are two direct options:
+
+Option A (best): winget (one command)
+Option B (works without winget): download Python installer and silent-install
+Then we install all requirements and run the app.
+
+Step 0) Open PowerShell as Administrator
+Right-click PowerShell → Run as administrator.
+
+Option A) Install Python using winget (recommended)
+1) Check winget
+PowerShell
+
+winget --version
+If it shows a version → proceed.
+
+2) Install Python 3.11 (silent)
+PowerShell
+
+winget install -e --id Python.Python.3.11 -h
+3) Restart PowerShell
+Close and reopen PowerShell, then run:
+
+PowerShell
+
+python --version
+Option B) Python install WITHOUT winget (direct download + silent install)
+If winget --version fails, use this:
+
+1) Download Python installer
+PowerShell
+
+$Url  = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe"
+$Out = "$env:TEMP\python-3.11.9-amd64.exe"
+Invoke-WebRequest -Uri $Url -OutFile $Out
+2) Silent install (adds to PATH for easy use)
+PowerShell
+
+Start-Process -FilePath $Out -ArgumentList "/quiet InstallAllUsers=1 PrependPath=1 Include_test=0 Include_doc=0" -Wait
+3) Restart PowerShell, then verify:
+PowerShell
+
+python --version
+Install ALL dependencies + run app (one-by-one)
+Run these after Python is working.
+
+Step 1) Go to project folder
+PowerShell
+
+cd "D:\aditya\DuoBits Projects\PPPL-PDF-Splitter"
+Step 2) Create virtual environment
+PowerShell
+
+python -m venv .venv
+Step 3) Activate venv
+PowerShell
+
+.\.venv\Scripts\Activate.ps1
+Step 4) Install requirements (ALL packages)
+PowerShell
+
+python -m pip install --upgrade pip
+pip install -r .\requirements.txt
+Step 5) Quick import test (optional but helpful)
+PowerShell
+
+python -c "import fitz, pypdf, PySide6; print('OK: imports working')"
+Step 6) Run the app
+PowerShell
+
+python .\main.py
+If you get an error installing PySide6 / PyMuPDF
+Usually the fix is to install Visual C++ Runtime. Tell me the exact error text and I’ll give the exact command for that PC.
+
+Quick question (so I tailor perfectly)
+On the target PCs, does this command work?
+
+PowerShell
+
+winget --version
+Reply Yes or No, and I’ll give you the best single “one script” installer approach for that scenario.
+
+
+
+======================================================
+FILE : main.py
+======================================================
+
+import sys
+from PySide6.QtWidgets import QApplication
+from src.ui.main_window import MainWindow
+
+def main():
+    app = QApplication(sys.argv)
+    w = MainWindow()
+    w.show()
+    return app.exec()
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+
+
+======================================================
+FILE : README.md
+======================================================
+
+# PPPL PDF Splitter (Windows Desktop)
+
+## What this app does
+- Upload a merged ERP invoice PDF
+- Detect invoice numbers
+- Split the PDF into invoice PDFs (optional)
+- Generate an ASN ZIP file (optional)
+- Save all outputs into the selected output folder (no subfolders)
+
+? No OCR is used. Text must be selectable in the PDF.
+
+---
+
+## Requirements
+- Windows PC
+- Python 3.10+
+- During Python install, enable: **Add Python to PATH**
+
+---
+
+## First-time setup (one time only)
+Run:
+```powershell
+.\setup.ps1
+
+
+
+======================================================
+FILE : requirements.txt
+======================================================
+
+altgraph==0.17.5
+packaging==26.2
+pefile==2024.8.26
+pyinstaller==6.20.0
+pyinstaller-hooks-contrib==2026.5
+PyMuPDF==1.27.2.3
+pypdf==6.11.0
+PySide6==6.11.1
+PySide6_Addons==6.11.1
+PySide6_Essentials==6.11.1
+pywin32-ctypes==0.2.3
+setuptools==82.0.1
+shiboken6==6.11.1
+
+
+
+======================================================
+FILE : run.ps1
+======================================================
+
+$ErrorActionPreference = "Stop"
+
+Write-Host "=== PPPL PDF Splitter Run ===" -ForegroundColor Cyan
+
+if (!(Test-Path ".\.venv")) {
+    throw "Virtual environment not found. Please run .\setup.ps1 first."
+}
+
+& .\.venv\Scripts\Activate.ps1
+
+python .\main.py
+
+
+
+======================================================
+FILE : setup.ps1
+======================================================
+
+param()
+
+$ErrorActionPreference = "Stop"
+
+Write-Host "=== PPPL PDF Splitter Setup ===" -ForegroundColor Cyan
+
+if (!(Test-Path ".\.venv")) {
+    Write-Host "Creating virtual environment (.venv)..." -ForegroundColor Yellow
+    python -m venv .venv
+}
+
+& .\.venv\Scripts\Activate.ps1
+
+Write-Host "Upgrading pip..." -ForegroundColor Yellow
+python -m pip install --upgrade pip
+
+Write-Host "Installing requirements..." -ForegroundColor Yellow
+pip install -r .\requirements.txt
+
+Write-Host "? Setup complete!" -ForegroundColor Green
+
+
+
+======================================================
+FILE : configs\settings.json
+======================================================
 
 {
   "appVersion": "1.0",
-  "defaultOutputPath": "",
-  "openFolderAfterProcessing": true
+  "defaultOutputPath": "C:/Users/Sandy/Desktop/ASN",
+  "openFolderAfterProcessing": true,
+  "lastZipOnly": true,
+  "lastIndividualPdfs": false,
+  "lastInputDir": "C:/Users/Sandy/Desktop/merged invoices"
 }
 
 
 
+======================================================
+FILE : src\main.py
+======================================================
 
-============================================================
-FILE: src\core\invoice_grouping.py
-============================================================
+import sys
+from PySide6.QtWidgets import QApplication
+from src.ui.main_window import MainWindow
 
+
+def main():
+    app = QApplication(sys.argv)
+    w = MainWindow()
+    w.show()
+    return app.exec()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+
+
+======================================================
+FILE : src\__init__.py
+======================================================
+
+
+
+
+
+======================================================
+FILE : src\core\invoice_grouping.py
+======================================================
 
 import re
 from collections import Counter, defaultdict
@@ -284,11 +686,9 @@ def validate_invoice_range(groups: List[InvoicePageGroup], from_int: int, to_int
 
 
 
-
-============================================================
-FILE: src\core\pdf_reader.py
-============================================================
-
+======================================================
+FILE : src\core\pdf_reader.py
+======================================================
 
 import re
 from dataclasses import dataclass
@@ -306,6 +706,11 @@ class PdfCandidateResult:
     candidate_count: int
 
 
+PAD_LEN = 5
+MIN_INVOICE_INT = 100
+MAX_INVOICE_INT = 999999
+
+
 def _normalize_text(text: str) -> str:
     if not text:
         return ""
@@ -315,70 +720,45 @@ def _normalize_text(text: str) -> str:
     return text.strip()
 
 
-def _tails_of_3_to_6_digits(num_str: str) -> List[int]:
-    if not num_str or not num_str.isdigit():
-        return []
-    out: List[int] = []
-    for L in range(3, 7):
-        if len(num_str) >= L:
-            tail = num_str[-L:]
-            try:
-                inv = int(tail)
-            except Exception:
-                continue
-            if 1 <= inv <= 999999:
-                out.append(inv)
-    return out
-
-
 def _candidate_ints_from_digit_string(num_str: str) -> List[int]:
     """
-    More robust: from a digit string we try multiple digit windows.
+    Convert a digit string (usually captured after 'invoice' label) into candidate ints.
     """
     if not num_str or not num_str.isdigit():
         return []
+
     out: Set[int] = set()
+
     L = len(num_str)
 
+    # If it's already 3..6 digits, keep as-is (after filtering)
     if 3 <= L <= 6:
-        try:
-            out.add(int(num_str))
-        except Exception:
-            pass
+        v = int(num_str)
+        if MIN_INVOICE_INT <= v <= MAX_INVOICE_INT:
+            out.add(v)
 
-    for l in range(3, 7):
-        if L >= l:
-            try:
-                out.add(int(num_str[-l:]))  # last
-            except Exception:
-                pass
-            try:
-                out.add(int(num_str[:l]))   # first
-            except Exception:
-                pass
+    # Also keep last 3..6 tails (helps when digits are concatenated)
+    for tail_len in range(3, 7):
+        if L >= tail_len:
+            tail = num_str[-tail_len:]
+            v = int(tail)
+            if MIN_INVOICE_INT <= v <= MAX_INVOICE_INT:
+                out.add(v)
 
-    for m in re.finditer(r"\d{3,6}", num_str):
-        try:
-            out.add(int(m.group(0)))
-        except Exception:
-            pass
-
-    return [x for x in out if 1 <= x <= 999999]
+    return sorted(out)
 
 
 def _extract_invoice_digit_strings_from_labels(text: str) -> List[str]:
     """
     Extract digit sequences after invoice-like labels.
-    IMPORTANT: your Signed_342.pdf returns none with this regex (good evidence),
-    so the logic below will tighten generic filtering when labels are absent.
     """
     text_norm = _normalize_text(text)
     if not text_norm:
         return []
 
     patterns = [
-        r"(?is)(?:invoice\s*(?:no\.?|number|id))\D{0,20}([0-9]{3,60})",
-        r"(?is)(?:inv\s*\.?\s*no\.?)\D{0,20}([0-9]{3,60})",
+        r"(?is)(?:invoice\s*(?:no\.?|number|id))\D{0,20}([0-9]{3,6})",
+        r"(?is)(?:inv\s*\.?\s*no\.?)\D{0,20}([0-9]{3,6})",
     ]
 
     found: List[str] = []
@@ -387,20 +767,39 @@ def _extract_invoice_digit_strings_from_labels(text: str) -> List[str]:
     return found
 
 
-def _extract_generic_3_to_6_tokens_as_ints(text: str) -> List[int]:
+def _extract_generic_invoice_ints(text: str) -> List[int]:
+    """
+    IMPORTANT FIX:
+    - We ONLY want invoice numbers that look like padded IDs (with leading zeros).
+    - This prevents picking '354' from 'SY NO. 354 ...'.
+
+    Your invoice looks like: 00353, 00586, etc. (5 digits, starts with '00').
+    """
     text_norm = _normalize_text(text)
     if not text_norm:
         return []
-    toks = re.findall(r"(?<!\d)0*\d{3,6}(?!\d)", text_norm)
-    out: List[int] = []
-    for tok in toks:
-        try:
-            inv_int = int(tok)
-        except Exception:
-            continue
-        if 1 <= inv_int <= 999999:
-            out.append(inv_int)
-    return out
+
+    # Primary: 5-digit invoice format starting with "00" => 00xxx (e.g., 00353)
+    candidates_00xxx = re.findall(r"(?<!\d)0{2}\d{3}(?!\d)", text_norm)
+    ints_00xxx: Set[int] = set()
+    for tok in candidates_00xxx:
+        v = int(tok)
+        if MIN_INVOICE_INT <= v <= MAX_INVOICE_INT:
+            ints_00xxx.add(v)
+
+    if ints_00xxx:
+        return sorted(ints_00xxx)
+
+    # Secondary fallback: tokens that start with one or more zeros and then 3..6 digits.
+    # This still avoids plain '354' (no leading zeros).
+    candidates_leading0 = re.findall(r"(?<!\d)0+\d{3,6}(?!\d)", text_norm)
+    ints: Set[int] = set()
+    for tok in candidates_leading0:
+        v = int(tok)
+        if MIN_INVOICE_INT <= v <= MAX_INVOICE_INT:
+            ints.add(v)
+
+    return sorted(ints)
 
 
 def _longest_consecutive_run(sorted_ints: List[int]) -> List[int]:
@@ -429,53 +828,44 @@ def _longest_consecutive_run(sorted_ints: List[int]) -> List[int]:
 def analyze_pdf_candidates(file_path: str) -> PdfCandidateResult:
     doc = fitz.open(file_path)
     page_count = doc.page_count
+    if page_count <= 0:
+        raise ValueError("Uploaded PDF is empty.")
 
     pages_by_inv: Dict[int, Set[int]] = {}
     labeled_hits: Dict[int, int] = {}
     generic_hits: Dict[int, int] = {}
 
-    any_labeled_found = False
-
     for page_index in range(page_count):
         page = doc.load_page(page_index)
         text = page.get_text("text") or ""
 
-        digit_strings = _extract_invoice_digit_strings_from_labels(text)
-        if digit_strings:
-            any_labeled_found = True
-
         seen_on_page: Set[int] = set()
 
-        # Labeled extraction
-        for ds in digit_strings:
-            for inv_int in _candidate_ints_from_digit_string(ds):
+        # 1) Labeled extraction (best)
+        label_digit_strings = _extract_invoice_digit_strings_from_labels(text)
+        if label_digit_strings:
+            for ds in label_digit_strings:
+                for inv_int in _candidate_ints_from_digit_string(ds):
+                    seen_on_page.add(inv_int)
+                    labeled_hits[inv_int] = labeled_hits.get(inv_int, 0) + 1
+        else:
+            # 2) Generic extraction (fixed to avoid SY NO. noise)
+            generic_ints = _extract_generic_invoice_ints(text)
+            for inv_int in set(generic_ints):
                 seen_on_page.add(inv_int)
-                labeled_hits[inv_int] = labeled_hits.get(inv_int, 0) + 1
-
-        # Generic extraction (used when labels fail)
-        generic_ints = _extract_generic_3_to_6_tokens_as_ints(text)
-        generic_unique = set(generic_ints)
-        for inv_int in generic_unique:
-            generic_hits[inv_int] = generic_hits.get(inv_int, 0) + 1
-            seen_on_page.add(inv_int)
+                generic_hits[inv_int] = generic_hits.get(inv_int, 0) + 1
 
         for inv_int in seen_on_page:
             pages_by_inv.setdefault(inv_int, set()).add(page_index)
 
-    # IMPORTANT: if labels are missing, tighten filtering to remove noise
-    # - For 3-page single-invoice PDFs: require candidate on at least 2 pages
-    # - For 2-page PDFs: require on at least 2 pages
-    # - For >=3 pages: require on at least 2 pages
-    if page_count >= 2:
-        required_pages = 2
-    else:
-        required_pages = 1
+    # Noise control:
+    # - Short docs: allow 1 page candidate
+    # - Longer docs: require 2 pages to stabilize
+    required_pages = 1 if page_count <= 3 else 2
 
-    # If labels exist, we can still use required_pages=2; but it�s safe.
     kept_ints = sorted([inv for inv, pages in pages_by_inv.items() if len(pages) >= required_pages])
 
     if not kept_ints:
-        # Relax if everything is too strict (rare fallback)
         kept_ints = sorted([inv for inv in pages_by_inv.keys() if len(pages_by_inv[inv]) >= 1])
 
     if not kept_ints:
@@ -484,24 +874,32 @@ def analyze_pdf_candidates(file_path: str) -> PdfCandidateResult:
             "If the PDF is scanned or text extraction is poor, OCR may be required."
         )
 
-    # Choose range (bulk) OR single invoice (noise-free)
-    run = _longest_consecutive_run(kept_ints)
-
-    if len(run) >= 2:
-        selected_ints = run
-    else:
-        # choose best single invoice:
-        # - prefer most pages
-        # - then most generic hits
-        # - then smaller int
+    # Selection:
+    # - If short PDF: pick ONE best invoice (prevents ranges like 353-354 inside single-invoice docs)
+    if page_count <= 3:
         def best_key(inv: int):
-            return (len(pages_by_inv.get(inv, set())), generic_hits.get(inv, 0), -inv)
+            pages_set = pages_by_inv.get(inv, set())
+            return (
+                len(pages_set),
+                labeled_hits.get(inv, 0),
+                generic_hits.get(inv, 0),
+                -inv
+            )
 
         best_inv = max(kept_ints, key=best_key)
         selected_ints = [best_inv]
+    else:
+        run = _longest_consecutive_run(kept_ints)
+        if len(run) >= 2:
+            selected_ints = run
+        else:
+            def best_key(inv: int):
+                return (len(pages_by_inv.get(inv, set())), labeled_hits.get(inv, 0), generic_hits.get(inv, 0), -inv)
 
-    pad_len = 5
-    invoice_ids = [f"{inv:0{pad_len}d}" for inv in selected_ints]
+            best_inv = max(kept_ints, key=best_key)
+            selected_ints = [best_inv]
+
+    invoice_ids = [f"{inv:0{PAD_LEN}d}" for inv in selected_ints]
 
     return PdfCandidateResult(
         page_count=page_count,
@@ -513,11 +911,9 @@ def analyze_pdf_candidates(file_path: str) -> PdfCandidateResult:
 
 
 
-
-============================================================
-FILE: src\core\pdf_splitter.py
-============================================================
-
+======================================================
+FILE : src\core\pdf_splitter.py
+======================================================
 
 import os
 from typing import Any, Dict, List
@@ -576,11 +972,62 @@ def split_invoice_groups_to_pdfs(
 
 
 
+======================================================
+FILE : src\core\settings_manager.py
+======================================================
 
-============================================================
-FILE: src\core\worker.py
-============================================================
+import json
+import os
+from typing import Any, Dict
 
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+SETTINGS_PATH = os.path.join(REPO_ROOT, "configs", "settings.json")
+
+DEFAULT_SETTINGS: Dict[str, Any] = {
+    "appVersion": "1.0",
+    "defaultOutputPath": "",
+    "openFolderAfterProcessing": True,
+    "lastZipOnly": False,
+    "lastIndividualPdfs": False,
+    "lastInputDir": ""
+}
+
+
+def load_settings() -> Dict[str, Any]:
+    """
+    Loads settings from configs/settings.json.
+    If file is missing or invalid, returns DEFAULT_SETTINGS.
+    """
+    if not os.path.exists(SETTINGS_PATH):
+        save_settings(DEFAULT_SETTINGS)
+        return dict(DEFAULT_SETTINGS)
+
+    try:
+        with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        save_settings(DEFAULT_SETTINGS)
+        return dict(DEFAULT_SETTINGS)
+
+    merged = dict(DEFAULT_SETTINGS)
+    if isinstance(data, dict):
+        merged.update(data)
+    return merged
+
+
+def save_settings(settings: Dict[str, Any]) -> None:
+    """
+    Saves settings to configs/settings.json.
+    """
+    os.makedirs(os.path.dirname(SETTINGS_PATH), exist_ok=True)
+    with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
+        json.dump(settings, f, indent=2)
+
+
+
+======================================================
+FILE : src\core\worker.py
+======================================================
 
 import os
 import threading
@@ -936,11 +1383,9 @@ class PdfProcessingWorker(QObject):
 
 
 
-
-============================================================
-FILE: src\core\zip_generator.py
-============================================================
-
+======================================================
+FILE : src\core\zip_generator.py
+======================================================
 
 import os
 import zipfile
@@ -998,25 +1443,24 @@ def create_asn_single_zip_from_invoice_bytes(
 
 
 
-
-============================================================
-FILE: src\ui\main_window.py
-============================================================
-
+======================================================
+FILE : src\ui\main_window.py
+======================================================
 
 import os
 from typing import List, Dict, Any, Optional
 
 from PySide6.QtCore import Qt, QThread
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QPixmap
 from PySide6.QtWidgets import (
-    QWidget, QLabel, QPushButton, QFileDialog, QLineEdit, QCheckBox,
+    QWidget, QLabel, QPushButton, QFileDialog, QCheckBox,
     QTextEdit, QProgressBar, QComboBox, QMessageBox, QVBoxLayout, QHBoxLayout,
-    QGroupBox, QFormLayout
+    QGroupBox, QFormLayout, QLineEdit
 )
 
 from src.ui.styles import APP_STYLE
 from src.core.worker import PdfProcessingWorker
+from src.core.settings_manager import load_settings, save_settings
 
 
 class MainWindow(QWidget):
@@ -1027,28 +1471,50 @@ class MainWindow(QWidget):
         self.setMinimumWidth(980)
         self.setMinimumHeight(720)
 
-        # Phase 3 candidate list (padded invoice strings like "00586")
+        # ---------------- Settings ----------------
+        self._settings: Dict[str, Any] = load_settings()
+
+        # Phase 3 state
         self.selected_pdf_path: str = ""
-        self.selected_output_path: str = ""
+        self.selected_output_path: str = self._settings.get("defaultOutputPath", "") or ""
         self.detected_invoice_ids: List[str] = []
         self.analysis_done: bool = False
+        self.single_invoice_detected: bool = False
 
         # Worker state
         self._processing_thread: Optional[QThread] = None
         self._worker: Optional[PdfProcessingWorker] = None
-        self._current_worker_mode: str = ""
 
         self._build_ui()
         self._apply_style()
+        self._apply_settings_to_ui()
         self._set_idle_state()
 
+    # ---------------- Styling ----------------
     def _apply_style(self):
         self.setStyleSheet(APP_STYLE)
 
+    # ---------------- UI Build ----------------
     def _build_ui(self):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(16, 16, 16, 16)
         main_layout.setSpacing(12)
+
+        # ===== Top area (Logo + Title) =====
+        logo_row = QVBoxLayout()
+        logo_row.setAlignment(Qt.AlignCenter)
+
+        self.lbl_logo = QLabel()
+        self.lbl_logo.setAlignment(Qt.AlignCenter)
+
+        # ? Correct logo path: src/ui/assets/PPPL_LOGO.png
+        logo_path = os.path.join(os.path.dirname(__file__), "assets", "PPPL_LOGO.png")
+        pix = QPixmap(logo_path)
+        if not pix.isNull():
+            self.lbl_logo.setPixmap(pix.scaledToHeight(64, Qt.SmoothTransformation))
+            self.lbl_logo.setToolTip("PPPL PDF Splitter")
+        else:
+            self.lbl_logo.setText("PPPL PDF Splitter")
 
         header = QLabel("PPPL PDF Splitter")
         header_font = QFont()
@@ -1060,8 +1526,11 @@ class MainWindow(QWidget):
         license_label = QLabel("Licensed by: Praditi Pressparts Pvt. Ltd.")
         license_label.setAlignment(Qt.AlignCenter)
 
-        main_layout.addWidget(header)
-        main_layout.addWidget(license_label)
+        logo_row.addWidget(self.lbl_logo)
+        logo_row.addWidget(header)
+        logo_row.addWidget(license_label)
+
+        main_layout.addLayout(logo_row)
 
         row = QHBoxLayout()
         main_layout.addLayout(row)
@@ -1128,7 +1597,6 @@ class MainWindow(QWidget):
         self.chk_zip_only = QCheckBox("Generate ASN ZIP Files Only")
         self.chk_individual_pdfs = QCheckBox("Generate Individual PDFs")
         self.chk_open_after = QCheckBox("Open Folder After Processing")
-        self.chk_open_after.setChecked(True)
 
         options_layout.addWidget(self.chk_zip_only)
         options_layout.addWidget(self.chk_individual_pdfs)
@@ -1174,11 +1642,40 @@ class MainWindow(QWidget):
         self.btn_clear.clicked.connect(self.on_clear)
         self.btn_open_output.clicked.connect(self.on_open_output_folder)
 
+        self.chk_open_after.stateChanged.connect(self._on_open_after_changed)
+        self.chk_zip_only.stateChanged.connect(self._on_output_options_changed)
+        self.chk_individual_pdfs.stateChanged.connect(self._on_output_options_changed)
+
         self.cmb_from.clear()
         self.cmb_to.clear()
 
-    # ---------------- UI State Helpers ----------------
+    # ---------------- Settings apply/save ----------------
+    def _apply_settings_to_ui(self):
+        self.txt_output_path.setText(self.selected_output_path)
+        self.btn_open_output.setEnabled(bool(self.selected_output_path))
 
+        self.chk_open_after.setChecked(bool(self._settings.get("openFolderAfterProcessing", True)))
+        self.chk_zip_only.setChecked(bool(self._settings.get("lastZipOnly", False)))
+        self.chk_individual_pdfs.setChecked(bool(self._settings.get("lastIndividualPdfs", False)))
+
+    def _on_open_after_changed(self, _state):
+        self._settings["openFolderAfterProcessing"] = bool(self.chk_open_after.isChecked())
+        save_settings(self._settings)
+
+    def _on_output_options_changed(self, _state):
+        self._settings["lastZipOnly"] = bool(self.chk_zip_only.isChecked())
+        self._settings["lastIndividualPdfs"] = bool(self.chk_individual_pdfs.isChecked())
+        save_settings(self._settings)
+
+    def _save_default_output_path(self, folder_path: str):
+        self._settings["defaultOutputPath"] = folder_path
+        save_settings(self._settings)
+
+    def _save_last_input_dir(self, input_dir: str):
+        self._settings["lastInputDir"] = input_dir
+        save_settings(self._settings)
+
+    # ---------------- UI state helpers ----------------
     def _set_busy_state(self):
         self.btn_upload.setEnabled(False)
         self.btn_browse_output.setEnabled(False)
@@ -1212,8 +1709,7 @@ class MainWindow(QWidget):
     def append_log(self, msg: str):
         self.txt_logs.append(msg)
 
-    # ---------------- Helpers ----------------
-
+    # ---------------- helpers ----------------
     def _get_from_to_values(self):
         return self.cmb_from.currentText().strip(), self.cmb_to.currentText().strip()
 
@@ -1229,22 +1725,28 @@ class MainWindow(QWidget):
             return None
 
     # ---------------- Phase 3: Upload + Analyze ----------------
-
     def on_upload_pdf(self):
+        last_input_dir = self._settings.get("lastInputDir", "") or ""
+        if last_input_dir and not os.path.isdir(last_input_dir):
+            last_input_dir = ""
+
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Select merged ERP invoice PDF",
-            "",
+            last_input_dir,
             "PDF Files (*.pdf)"
         )
         if not file_path:
             return
 
-        self.analysis_done = False
-        self.detected_invoice_ids = []
+        self._save_last_input_dir(os.path.dirname(file_path))
 
         self.selected_pdf_path = file_path
         self.lbl_pdf_path.setText(file_path)
+
+        self.analysis_done = False
+        self.detected_invoice_ids = []
+        self.single_invoice_detected = False
 
         self.cmb_from.clear()
         self.cmb_to.clear()
@@ -1253,37 +1755,27 @@ class MainWindow(QWidget):
         self.txt_logs.clear()
         self.progress.setValue(0)
 
-        self.selected_output_path = ""
-        self.txt_output_path.setText("")
-        self.btn_open_output.setEnabled(False)
+        self.selected_output_path = self._settings.get("defaultOutputPath", "") or ""
+        self.txt_output_path.setText(self.selected_output_path)
+        self.btn_open_output.setEnabled(bool(self.selected_output_path))
 
-        self.append_log(f"Selected PDF: {file_path}")
-        self.append_log("Starting Phase 3 analysis (extracting invoice candidates)...")
-
-        self._current_worker_mode = "analysis"
         self._set_busy_state()
-        self._run_worker_analyze()
-
-    def _run_worker_analyze(self):
-        options: Dict[str, Any] = {}
 
         self._worker = PdfProcessingWorker(
             mode="analyze",
             file_path=self.selected_pdf_path,
             output_path=self.selected_output_path,
-            options=options,
+            options={},
             from_invoice="",
             to_invoice=""
         )
 
         self._processing_thread = QThread(self)
         self._worker.moveToThread(self._processing_thread)
-
         self._processing_thread.started.connect(self._worker.run)
 
         self._worker.log.connect(self.append_log)
         self._worker.progress.connect(self.progress.setValue)
-
         self._worker.analysis_complete.connect(self._on_analysis_complete)
         self._worker.error.connect(self._on_worker_error)
         self._worker.finished.connect(self._on_worker_finished)
@@ -1297,16 +1789,18 @@ class MainWindow(QWidget):
         if not invoice_ids:
             self.lbl_estimate.setText("No invoice candidates found in Phase 3.")
             self.analysis_done = False
+            self.single_invoice_detected = False
+            self._set_idle_state()
             return
 
         self.cmb_from.clear()
         self.cmb_to.clear()
-
         self.cmb_from.addItems(invoice_ids)
         self.cmb_to.addItems(invoice_ids)
-
         self.cmb_from.setCurrentText(invoice_ids[0])
         self.cmb_to.setCurrentText(invoice_ids[-1])
+
+        self.single_invoice_detected = (len(invoice_ids) == 1)
 
         page_count = payload.get("page_count", "?")
         cand_count = payload.get("candidate_count", len(invoice_ids))
@@ -1317,9 +1811,18 @@ class MainWindow(QWidget):
         )
 
         self.analysis_done = True
+        self.append_log(f"Phase 3 detected invoices: {invoice_ids}")
 
-    # ---------------- Phase 7: Validation (Stop if range not in PDF) ----------------
+        if self.single_invoice_detected:
+            QMessageBox.warning(
+                self,
+                "Single invoice cannot be split",
+                "This PDF contains only ONE invoice.\nA single invoice cannot be split."
+            )
 
+        self._set_idle_state()
+
+    # ---------------- Phase 4+: Start Processing ----------------
     def on_start_processing(self):
         if not self.analysis_done:
             QMessageBox.warning(self, "Not Ready", "Please upload a PDF first and wait for Phase 3 analysis.")
@@ -1345,16 +1848,22 @@ class MainWindow(QWidget):
             QMessageBox.warning(self, "Invalid invoice range selected", "FROM must be <= TO.")
             return
 
-        # Stop if FROM/TO not present in detected PDF candidates (Phase 7 rule)
-        detected_ints = set()
-        for x in self.detected_invoice_ids:
-            try:
-                detected_ints.add(int(x))
-            except Exception:
-                pass
+        # Requirement: single invoice cannot be split
+        if from_int == to_int:
+            QMessageBox.warning(
+                self,
+                "Single invoice cannot be split",
+                f"You selected only invoice {from_val}.\nPlease upload a merged PDF that contains multiple invoices."
+            )
+            return
 
+        detected_ints = set(int(x) for x in self.detected_invoice_ids if x and x.isdigit())
         if from_int not in detected_ints or to_int not in detected_ints:
-            QMessageBox.warning(self, "Invoice range not found in uploaded PDF", "Invoice range not found in uploaded PDF.")
+            QMessageBox.warning(
+                self,
+                "Invoice range not found in uploaded PDF",
+                "Invoice range not found in uploaded PDF."
+            )
             return
 
         if not (self.chk_zip_only.isChecked() or self.chk_individual_pdfs.isChecked()):
@@ -1365,7 +1874,7 @@ class MainWindow(QWidget):
             )
             return
 
-        options: Dict[str, Any] = {
+        options = {
             "zip_only": self.chk_zip_only.isChecked(),
             "individual_pdfs": self.chk_individual_pdfs.isChecked(),
             "open_after": self.chk_open_after.isChecked(),
@@ -1376,7 +1885,6 @@ class MainWindow(QWidget):
         self.append_log("Start Processing clicked.")
         self.append_log(f"Selected range: FROM={from_val} TO={to_val}")
 
-        self._current_worker_mode = "split"
         self._set_busy_state()
 
         self._worker = PdfProcessingWorker(
@@ -1394,28 +1902,18 @@ class MainWindow(QWidget):
 
         self._worker.log.connect(self.append_log)
         self._worker.progress.connect(self.progress.setValue)
-
         self._worker.split_complete.connect(self._on_split_complete)
         self._worker.error.connect(self._on_worker_error)
         self._worker.finished.connect(self._on_worker_finished)
-
-        # NEW: duplicate popup handler
         self._worker.request_duplicate.connect(self._on_duplicate_request)
 
         self._processing_thread.start()
 
-    # ---------------- Phase 8: Duplicate popup ----------------
-
     def _on_duplicate_request(self, info: dict):
-        """
-        This runs on UI thread.
-        Worker is waiting for user decision; we send decision back via set_duplicate_decision().
-        """
         if not self._worker:
             return
 
         kind = info.get("kind")
-
         if kind == "pdf":
             path = info.get("path", "")
             invoice_int = info.get("invoice_int", "")
@@ -1433,7 +1931,7 @@ class MainWindow(QWidget):
 
         btn_skip = box.addButton("Skip", QMessageBox.RejectRole)
         btn_overwrite = box.addButton("Overwrite", QMessageBox.AcceptRole)
-        btn_cancel = box.addButton("Cancel All", QMessageBox.DestructiveRole)
+        _btn_cancel = box.addButton("Cancel All", QMessageBox.DestructiveRole)
 
         box.exec()
 
@@ -1445,21 +1943,16 @@ class MainWindow(QWidget):
         else:
             decision = "cancel_all"
 
-        # Send decision to worker thread (unblocks worker)
         self._worker.set_duplicate_decision(decision)
 
-    # ---------------- Worker handlers ----------------
-
     def _on_split_complete(self, payload: dict):
-        from_int = payload.get("from_invoice_int")
-        to_int = payload.get("to_invoice_int")
         warnings = payload.get("warnings", []) or []
 
         created_pdfs_count = payload.get("created_pdfs_count", 0)
         created_zips_count = payload.get("created_zips_count", 0)
 
         self.append_log("========================================")
-        self.append_log(f"Phase 4+5+6+8 completed for {from_int} to {to_int}.")
+        self.append_log("Phase 4+5+6+8 completed successfully.")
         self.append_log(f"Created PDFs: {created_pdfs_count}")
         self.append_log(f"Created ZIPs: {created_zips_count}")
 
@@ -1469,45 +1962,46 @@ class MainWindow(QWidget):
         QMessageBox.information(
             self,
             "Processing Complete",
-            "PDF splitting + ASN ZIP generation completed successfully.\n\n"
-            "Duplicate handling was applied based on your choices."
+            "PDF splitting + ASN ZIP generation completed successfully."
         )
 
-        # Open output folder after success
         self.btn_open_output.setEnabled(True)
         if self.chk_open_after.isChecked():
             self.on_open_output_folder()
 
+        self._set_idle_state()
+
+    # ---------------- Worker handlers ----------------
     def _on_worker_error(self, err: str):
         self.append_log(f"[ERROR] {err}")
-
-        # Cancel All is NOT a �system crash�; show info instead of critical error
         if "Cancel All selected" in err:
             QMessageBox.information(self, "Cancelled", err)
         else:
             QMessageBox.critical(self, "Error", err)
 
-    def _on_worker_finished(self, success: bool):
+    def _on_worker_finished(self, _success: bool):
         if self._processing_thread is not None:
             self._processing_thread.quit()
             self._processing_thread.wait(2000)
-
         self._processing_thread = None
         self._worker = None
-        self._current_worker_mode = ""
-
         self._set_idle_state()
 
-    # ---------------- Output Folder ----------------
-
+    # ---------------- Output folder ----------------
     def on_browse_output_folder(self):
-        folder_path = QFileDialog.getExistingDirectory(self, "Select output folder")
+        initial_dir = self._settings.get("defaultOutputPath", "") or ""
+        if initial_dir and not os.path.isdir(initial_dir):
+            initial_dir = ""
+
+        folder_path = QFileDialog.getExistingDirectory(self, "Select output folder", initial_dir)
         if not folder_path:
             return
 
         self.selected_output_path = folder_path
         self.txt_output_path.setText(folder_path)
         self.btn_open_output.setEnabled(True)
+
+        self._save_default_output_path(folder_path)
 
     def on_open_output_folder(self):
         if not self.selected_output_path:
@@ -1522,37 +2016,30 @@ class MainWindow(QWidget):
             QMessageBox.warning(self, "Cannot open folder", str(e))
 
     # ---------------- Clear ----------------
-
     def on_clear(self):
+        # Keep output folder + settings, just reset current PDF session
         self.selected_pdf_path = ""
-        self.selected_output_path = ""
-        self.analysis_done = False
         self.detected_invoice_ids = []
+        self.analysis_done = False
+        self.single_invoice_detected = False
 
         self.lbl_pdf_path.setText("No file selected")
         self.lbl_estimate.setText("Invoice estimate will appear here after PDF analysis (Phase 3).")
-        self.txt_output_path.setText("")
-
-        self.chk_zip_only.setChecked(False)
-        self.chk_individual_pdfs.setChecked(False)
-        self.chk_open_after.setChecked(True)
 
         self.cmb_from.clear()
         self.cmb_to.clear()
 
         self.txt_logs.clear()
         self.progress.setValue(0)
-        self.btn_open_output.setEnabled(False)
 
+        self.btn_open_output.setEnabled(bool(self.selected_output_path))
         self._set_idle_state()
 
 
 
-
-============================================================
-FILE: src\ui\styles.py
-============================================================
-
+======================================================
+FILE : src\ui\styles.py
+======================================================
 
 APP_STYLE = """
 QWidget {
@@ -1567,7 +2054,7 @@ QLabel {
 }
 
 QGroupBox {
-    border: 1px solid #1f2a44;
+    border: 1px solid #ffffff;
     border-radius: 10px;
     margin-top: 10px;
     padding: 10px;
@@ -1577,17 +2064,17 @@ QGroupBox::title {
     subcontrol-origin: margin;
     left: 10px;
     padding: 0 6px;
-    color: #93c5fd;
-    font-weight: 600;
+    color: #ffffff;
+    font-weight: 700;
 }
 
 QPushButton {
     background-color: #1d4ed8;
     color: white;
-    border: none;
+    border: 1px solid rgba(255,255,255,0.15);
     padding: 10px 14px;
     border-radius: 10px;
-    font-weight: 600;
+    font-weight: 700;
 }
 
 QPushButton:hover {
@@ -1597,6 +2084,7 @@ QPushButton:hover {
 QPushButton:disabled {
     background-color: #334155;
     color: #94a3b8;
+    border: 1px solid rgba(255,255,255,0.08);
 }
 
 QLineEdit, QComboBox {
@@ -1615,7 +2103,7 @@ QComboBox QAbstractItemView {
 
 QCheckBox {
     spacing: 8px;
-    font-weight: 600;
+    font-weight: 700;
 }
 
 QTextEdit {
@@ -1639,241 +2127,5 @@ QProgressBar::chunk {
     border-radius: 10px;
 }
 """
-
-
-
-
-============================================================
-FILE: src\main.py
-============================================================
-
-
-import sys
-from PySide6.QtWidgets import QApplication
-from src.ui.main_window import MainWindow
-
-
-def main():
-    app = QApplication(sys.argv)
-    w = MainWindow()
-    w.show()
-    return app.exec()
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
-
-
-
-
-============================================================
-FILE: src\__init__.py
-============================================================
-
-
-
-
-
-
-
-============================================================
-FILE: commands.txt
-============================================================
-
-
-
-file run 
-python ".\main.py"
-
-
-
-env activation
-.\.venv\Scripts\Activate.ps1
-
-
-
-
-============================================================
-FILE: debug_extract.py
-============================================================
-
-
-import sys
-from src.core.pdf_reader import analyze_pdf_candidates
-
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: python debug_extract.py <pdf_path>")
-        return
-
-    pdf_path = sys.argv[1]
-    result = analyze_pdf_candidates(pdf_path)
-
-    print("==== Phase 3 Debug Result ====")
-    print("page_count:", result.page_count)
-    print("candidate_count:", result.candidate_count)
-    print("min_invoice_int:", result.min_invoice_int)
-    print("max_invoice_int:", result.max_invoice_int)
-    print("invoice_ids_sample:", result.invoice_ids[:20])
-    print("================================")
-
-if __name__ == "__main__":
-    main()
-
-
-
-
-============================================================
-FILE: debug_grouping.py
-============================================================
-
-
-import sys
-from src.core.pdf_reader import analyze_pdf_candidates
-from src.core.invoice_grouping import build_invoice_groups_from_pdf, validate_invoice_range
-
-def main():
-    if len(sys.argv) < 4:
-        print("Usage: python debug_grouping.py <pdf_path> <from_int> <to_int>")
-        return
-
-    pdf_path = sys.argv[1]
-    from_int = int(sys.argv[2])
-    to_int = int(sys.argv[3])
-
-    print("==== Phase 3 candidates ====")
-    cand = analyze_pdf_candidates(pdf_path)
-    print("page_count:", cand.page_count)
-    print("candidate_count:", cand.candidate_count)
-    print("min_invoice_int:", cand.min_invoice_int)
-    print("max_invoice_int:", cand.max_invoice_int)
-    print("invoice_ids (sample):", cand.invoice_ids[:30])
-
-    print("\n==== Phase 4 grouping ====")
-    groups = build_invoice_groups_from_pdf(pdf_path, invoice_ids=cand.invoice_ids)
-    print("groups_count:", len(groups))
-
-    print("\nFirst 10 groups:")
-    for g in groups[:10]:
-        print("invoice_int:", g.invoice_int, "invoice_raw:", g.invoice_raw, "pages:", g.page_indices)
-
-    print("\n==== Phase 4 validate range ====")
-    payload = validate_invoice_range(groups, from_int=from_int, to_int=to_int)
-    print("Validation selected_count:", payload.get("selected_count"))
-    print("pad_len:", payload.get("pad_len"))
-    print("invoice_ids (selected):", payload.get("invoice_ids"))
-    print("warnings:", payload.get("warnings"))
-
-if __name__ == "__main__":
-    main()
-
-
-
-
-============================================================
-FILE: debug_invoice_label_details.py
-============================================================
-
-
-import re
-import sys
-import fitz
-
-def normalize_text(t: str) -> str:
-    if not t:
-        return ""
-    t = t.replace("\u00A0", " ")
-    t = t.replace("\\u00A0", " ")
-    t = re.sub(r"\s+", " ", t)
-    return t.strip()
-
-def candidate_ints_from_digit_string_last3to6(ds: str):
-    if not ds or not ds.isdigit():
-        return []
-    out = []
-    for L in range(3, 7):
-        if len(ds) >= L:
-            out.append(int(ds[-L:]))
-    return sorted(set(out))
-
-PATTERNS = [
-    # same style as your current pdf_reader patterns
-    r"(?is)(?:invoice\s*(?:no\.?|number|id))\D{0,20}([0-9]{3,60})",
-    r"(?is)(?:inv\s*\.?\s*no\.?)\D{0,20}([0-9]{3,60})",
-]
-
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: python debug_invoice_label_details.py <pdf_path>")
-        return
-
-    pdf_path = sys.argv[1]
-    doc = fitz.open(pdf_path)
-    print("PDF:", pdf_path)
-    print("page_count:", doc.page_count)
-    print("--------------------------------------------------")
-
-    for page_index in range(doc.page_count):
-        text = doc.load_page(page_index).get_text("text") or ""
-        text_norm = normalize_text(text)
-
-        matches = []
-        for pat in PATTERNS:
-            matches.extend(re.findall(pat, text_norm))
-
-        if matches:
-            print(f"[Page {page_index+1}] Invoice-like label matches:")
-            for ds in matches:
-                print("  digit_string:", ds)
-                print("  last3to6 ints:", candidate_ints_from_digit_string_last3to6(ds))
-        else:
-            print(f"[Page {page_index+1}] No invoice label matches found by regex.")
-    print("--------------------------------------------------")
-
-if __name__ == "__main__":
-    main()
-
-
-
-
-============================================================
-FILE: main.py
-============================================================
-
-
-import sys
-from PySide6.QtWidgets import QApplication
-from src.ui.main_window import MainWindow
-
-def main():
-    app = QApplication(sys.argv)
-    w = MainWindow()
-    w.show()
-    return app.exec()
-
-if __name__ == "__main__":
-    raise SystemExit(main())
-
-
-
-
-============================================================
-FILE: requirements.txt
-============================================================
-
-
-altgraph==0.17.5
-packaging==26.2
-pefile==2024.8.26
-pyinstaller==6.20.0
-pyinstaller-hooks-contrib==2026.5
-PyMuPDF==1.27.2.3
-pypdf==6.11.0
-PySide6==6.11.1
-PySide6_Addons==6.11.1
-PySide6_Essentials==6.11.1
-pywin32-ctypes==0.2.3
-setuptools==82.0.1
-shiboken6==6.11.1
 
 
