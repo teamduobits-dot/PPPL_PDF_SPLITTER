@@ -1,0 +1,414 @@
+﻿import os
+import re
+import zipfile
+from typing import Dict, List
+
+from PySide6.QtCore import QObject, Signal
+from PySide6.QtGui import QFont, QPixmap
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QWidget, QLabel, QPushButton, QFileDialog, QCheckBox,
+    QTextEdit, QProgressBar, QMessageBox, QVBoxLayout, QHBoxLayout,
+    QGroupBox, QListWidget, QListWidgetItem, QLineEdit
+)
+
+from PySide6.QtCore import QThread
+
+from src.ui.styles import APP_STYLE
+
+
+def extract_last_int_from_filename(path: str) -> int:
+    """
+    Rule:
+      Signed_343.pdf -> 343
+    Take the LAST digits group in the filename.
+    """
+    base = os.path.basename(path)
+    nums = re.findall(r"\d+", base)
+    if not nums:
+        raise ValueError(f"No digits found in filename: {base}")
+    return int(nums[-1])
+
+
+class RenameZipWorker(QObject):
+    log = Signal(str)
+    progress = Signal(int)
+    done = Signal(object)
+    error = Signal(str)
+
+    def __init__(
+        self,
+        pdf_paths: List[str],
+        output_root: str
+    ):
+        super().__init__()
+        self.pdf_paths = pdf_paths
+        self.output_root = output_root
+
+    def run(self):
+        try:
+            if not self.pdf_paths:
+                raise ValueError("No PDFs selected.")
+            if not self.output_root or not os.path.isdir(self.output_root):
+                raise ValueError("Output folder is missing or invalid.")
+
+            # Extract invoice ints from filenames
+            inv_to_path: Dict[int, str] = {}
+            for p in self.pdf_paths:
+                inv = extract_last_int_from_filename(p)
+                inv_to_path[inv] = p  # duplicates: last wins
+
+            invs_sorted = sorted(inv_to_path.keys())
+            if not invs_sorted:
+                raise ValueError("No valid invoice digits found in selected filenames.")
+
+            from_int = invs_sorted[0]
+            to_int = invs_sorted[-1]
+
+            self.log.emit(f"Extracted invoices: {from_int} to {to_int}")
+            self.log.emit(f"Saving renamed PDFs into: {self.output_root}")
+
+            renamed_pdf_bytes: Dict[int, bytes] = {}
+
+            total = len(invs_sorted)
+            for idx, inv in enumerate(invs_sorted, start=1):
+                src_path = inv_to_path[inv]
+                base = os.path.basename(src_path)
+                self.log.emit(f"Reading: {base} -> {inv}.pdf")
+
+                with open(src_path, "rb") as f:
+                    b = f.read()
+
+                renamed_pdf_bytes[inv] = b
+
+                # Always write renamed PDFs into the selected output folder
+                out_pdf = os.path.join(self.output_root, f"{inv}.pdf")
+                with open(out_pdf, "wb") as f:
+                    f.write(b)
+
+                self.log.emit(f"Written: {os.path.basename(out_pdf)}")
+
+                percent = int(10 + idx * 70 / max(total, 1))
+                self.progress.emit(min(percent, 90))
+
+            # Always create ZIP in the selected output folder
+            zip_name = f"{from_int}.zip"
+            zip_path = os.path.join(self.output_root, zip_name)
+
+            if os.path.exists(zip_path):
+                os.remove(zip_path)
+
+            self.log.emit(f"Creating ZIP: {zip_name} (normal zip)")
+            with zipfile.ZipFile(zip_path, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+                for inv in invs_sorted:
+                    zf.writestr(f"{inv}.pdf", renamed_pdf_bytes[inv])
+
+            self.progress.emit(100)
+            self.done.emit({
+                "session_output_path": self.output_root,
+                "from_invoice_int": from_int,
+                "to_invoice_int": to_int,
+                "created_individual_count": len(invs_sorted),
+                "created_zip_paths": [zip_path],
+            })
+
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class SignedRenameWindow(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        self.selected_pdf_paths: List[str] = []
+        self.selected_output_path: str = ""
+        self._last_session_path: str = ""
+
+        self._worker_thread = None
+        self._worker = None
+
+        self.setWindowTitle("Signed Rename ZIP (Multi PDFs)")
+        self.setMinimumWidth(980)
+        self.setMinimumHeight(720)
+
+        self._build_ui()
+        self.setStyleSheet(APP_STYLE)
+        self._set_idle_state()
+
+    def _build_ui(self):
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(16, 16, 16, 16)
+        main_layout.setSpacing(12)
+
+        # Header
+        logo_row = QVBoxLayout()
+        logo_row.setAlignment(Qt.AlignCenter)
+
+        self.lbl_logo = QLabel()
+        logo_path = os.path.join(os.path.dirname(__file__), "assets", "PPPL_LOGO.png")
+        pix = QPixmap(logo_path)
+        if not pix.isNull():
+            self.lbl_logo.setPixmap(pix.scaledToHeight(64, Qt.SmoothTransformation))
+        self.lbl_logo.setAlignment(Qt.AlignCenter)
+
+        header = QLabel("Signed Rename ZIP (Multi PDFs)")
+        header_font = QFont()
+        header_font.setPointSize(22)
+        header_font.setBold(True)
+        header.setFont(header_font)
+        header.setAlignment(Qt.AlignCenter)
+
+        license_label = QLabel("Licensed by: Praditi Pressparts Pvt. Ltd.")
+        license_label.setAlignment(Qt.AlignCenter)
+
+        logo_row.addWidget(self.lbl_logo)
+        logo_row.addWidget(header)
+        logo_row.addWidget(license_label)
+        main_layout.addLayout(logo_row)
+
+        row = QHBoxLayout()
+        main_layout.addLayout(row)
+
+        left_col = QVBoxLayout()
+        right_col = QVBoxLayout()
+        row.addLayout(left_col, 1)
+        row.addLayout(right_col, 1)
+
+        # Left: PDFs selector
+        upload_box = QGroupBox("Select Signed PDFs")
+        upload_layout = QVBoxLayout(upload_box)
+
+        self.btn_select_pdfs = QPushButton("Select Multiple PDFs")
+        self.list_selected = QListWidget()
+
+        self.lbl_rule = QLabel("Rule: Signed_343.pdf -> 343.pdf (LAST number group)")
+        self.lbl_rule.setWordWrap(True)
+
+        self.lbl_extracted_range = QLabel("Extracted Range: -")
+        self.lbl_extracted_range.setWordWrap(True)
+
+        upload_layout.addWidget(self.btn_select_pdfs)
+        upload_layout.addWidget(self.list_selected)
+        upload_layout.addWidget(self.lbl_rule)
+        upload_layout.addWidget(self.lbl_extracted_range)
+        left_col.addWidget(upload_box)
+
+        # Right: Output
+        output_box = QGroupBox("Output Section")
+        output_layout = QVBoxLayout(output_box)
+
+        out_row = QHBoxLayout()
+        self.txt_output_path = QLineEdit()
+        self.txt_output_path.setReadOnly(True)
+        self.btn_browse_output = QPushButton("Browse Folder")
+        out_row.addWidget(self.txt_output_path, 1)
+        out_row.addWidget(self.btn_browse_output)
+        output_layout.addLayout(out_row)
+
+        self.lbl_session_hint = QLabel("Outputs will be saved directly in: <output>/")
+        self.lbl_session_hint.setWordWrap(True)
+        output_layout.addWidget(self.lbl_session_hint)
+
+        right_col.addWidget(output_box)
+
+        # Options (kept in UI, but logic always renames+zips)
+        options_box = QGroupBox("Processing Options")
+        options_layout = QVBoxLayout(options_box)
+
+        self.chk_zip_only = QCheckBox("Generate ZIP Files Only")
+        self.chk_individual_pdfs = QCheckBox("Generate Individual PDFs")
+        self.chk_create_zip = QCheckBox("Create ZIP")
+
+        self.chk_individual_pdfs.setChecked(True)
+        self.chk_create_zip.setChecked(True)
+        self.chk_zip_only.setChecked(False)
+
+        self.chk_open_after = QCheckBox("Open Folder After Processing")
+        self.chk_open_after.setChecked(True)
+
+        options_layout.addWidget(self.chk_zip_only)
+        options_layout.addWidget(self.chk_individual_pdfs)
+        options_layout.addWidget(self.chk_create_zip)
+        options_layout.addWidget(self.chk_open_after)
+
+        right_col.addWidget(options_box)
+
+        # Logs
+        logs_box = QGroupBox("Processing Logs")
+        logs_layout = QVBoxLayout(logs_box)
+
+        self.txt_logs = QTextEdit()
+        self.txt_logs.setReadOnly(True)
+
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+
+        logs_layout.addWidget(self.progress)
+        logs_layout.addWidget(self.txt_logs)
+        main_layout.addWidget(logs_box)
+
+        # Buttons row
+        btn_row = QHBoxLayout()
+        self.btn_start = QPushButton("Start Rename + ZIP")
+        self.btn_clear = QPushButton("Clear")
+        self.btn_open_output = QPushButton("Open Output Folder")
+        self.btn_open_output.setEnabled(False)
+
+        btn_row.addWidget(self.btn_start)
+        btn_row.addWidget(self.btn_clear)
+        btn_row.addWidget(self.btn_open_output)
+        main_layout.addLayout(btn_row)
+
+        footer = QLabel("Developed by Duobits Software Solutions | Version 1.0")
+        footer.setAlignment(Qt.AlignCenter)
+        main_layout.addWidget(footer)
+
+        # Events
+        self.btn_select_pdfs.clicked.connect(self.on_select_pdfs)
+        self.btn_browse_output.clicked.connect(self.on_browse_output_folder)
+        self.btn_start.clicked.connect(self.on_start_processing)
+        self.btn_clear.clicked.connect(self.on_clear)
+        self.btn_open_output.clicked.connect(self.on_open_output_folder)
+
+    def _set_busy_state(self):
+        self.btn_select_pdfs.setEnabled(False)
+        self.btn_start.setEnabled(False)
+        self.btn_clear.setEnabled(False)
+        self.btn_browse_output.setEnabled(False)
+        self.btn_open_output.setEnabled(False)
+
+        self.chk_zip_only.setEnabled(False)
+        self.chk_individual_pdfs.setEnabled(False)
+        self.chk_create_zip.setEnabled(False)
+        self.chk_open_after.setEnabled(False)
+
+    def _set_idle_state(self):
+        self.btn_select_pdfs.setEnabled(True)
+        self.btn_start.setEnabled(True)
+        self.btn_clear.setEnabled(True)
+        self.btn_browse_output.setEnabled(True)
+        self.btn_open_output.setEnabled(bool(self._last_session_path) or bool(self.selected_output_path))
+
+        self.chk_zip_only.setEnabled(True)
+        self.chk_individual_pdfs.setEnabled(True)
+        self.chk_create_zip.setEnabled(True)
+        self.chk_open_after.setEnabled(True)
+
+    def append_log(self, msg: str):
+        self.txt_logs.append(msg)
+
+    def on_select_pdfs(self):
+        file_paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Select Signed PDFs (multiple)",
+            "",
+            "PDF Files (*.pdf)"
+        )
+        if not file_paths:
+            return
+
+        self.selected_pdf_paths = list(file_paths)
+        self.list_selected.clear()
+        for p in self.selected_pdf_paths:
+            self.list_selected.addItem(QListWidgetItem(p))
+
+        # Preview extracted range
+        try:
+            invs = [extract_last_int_from_filename(p) for p in self.selected_pdf_paths]
+            if invs:
+                self.lbl_extracted_range.setText(f"Extracted Range: {min(invs)} to {max(invs)}")
+            else:
+                self.lbl_extracted_range.setText("Extracted Range: -")
+        except Exception:
+            self.lbl_extracted_range.setText("Extracted Range: (error parsing filenames)")
+
+        self.btn_open_output.setEnabled(bool(self.selected_output_path))
+
+    def on_browse_output_folder(self):
+        folder_path = QFileDialog.getExistingDirectory(self, "Select output folder", self.selected_output_path)
+        if folder_path:
+            self.selected_output_path = folder_path
+            self.txt_output_path.setText(folder_path)
+            self.btn_open_output.setEnabled(True)
+
+    def on_start_processing(self):
+        if not self.selected_pdf_paths:
+            QMessageBox.warning(self, "Missing PDFs", "Please select multiple Signed PDF files first.")
+            return
+
+        if not self.selected_output_path or not os.path.isdir(self.selected_output_path):
+            QMessageBox.warning(self, "Missing Output Folder", "Please select a valid output folder first.")
+            return
+
+        self.progress.setValue(0)
+        self.txt_logs.clear()
+        self._last_session_path = ""
+        self._set_busy_state()
+
+        self._worker_thread = QThread(self)
+        self._worker = RenameZipWorker(
+            pdf_paths=self.selected_pdf_paths,
+            output_root=self.selected_output_path
+        )
+        self._worker.moveToThread(self._worker_thread)
+
+        self._worker_thread.started.connect(self._worker.run)
+        self._worker.log.connect(self.append_log)
+        self._worker.progress.connect(self.progress.setValue)
+        self._worker.done.connect(self._on_done)
+        self._worker.error.connect(self._on_error)
+
+        self._worker.done.connect(lambda _payload: self._worker_thread.quit())
+        self._worker.error.connect(lambda _msg: self._worker_thread.quit())
+
+        self._worker_thread.start()
+
+    def _on_done(self, payload: dict):
+        self._last_session_path = payload.get("session_output_path", "") or self.selected_output_path
+
+        self.append_log("========================================")
+        self.append_log("Signed rename + ZIP completed successfully.")
+
+        created_zip_paths = payload.get("created_zip_paths", []) or []
+        if created_zip_paths:
+            self.append_log(f"Created ZIP: {created_zip_paths[0]}")
+
+        created_individual_count = payload.get("created_individual_count", 0)
+        if created_individual_count:
+            self.append_log(f"Written PDFs: {created_individual_count}")
+
+        self.btn_open_output.setEnabled(bool(self._last_session_path))
+
+        if self.chk_open_after.isChecked() and self._last_session_path:
+            self.on_open_output_folder()
+
+        self.progress.setValue(100)
+        self._set_idle_state()
+
+    def _on_error(self, msg: str):
+        self.append_log(f"[ERROR] {msg}")
+        QMessageBox.critical(self, "Error", msg)
+        self._set_idle_state()
+
+    def on_open_output_folder(self):
+        path = self._last_session_path or self.selected_output_path
+        if path and os.path.isdir(path):
+            try:
+                os.startfile(path)
+            except Exception as e:
+                QMessageBox.warning(self, "Cannot open folder", str(e))
+
+    def on_clear(self):
+        self.selected_pdf_paths = []
+        self.list_selected.clear()
+        self.selected_output_path = ""
+        self._last_session_path = ""
+        self.txt_output_path.clear()
+        self.lbl_extracted_range.setText("Extracted Range: -")
+        self.txt_logs.clear()
+        self.progress.setValue(0)
+        self.btn_open_output.setEnabled(False)
+        self._set_idle_state()
+
+

@@ -1,0 +1,45 @@
+﻿from PySide6.QtWidgets import QWidget, QVBoxLayout, QTabWidget
+from PySide6.QtCore import Qt
+
+from src.ui.main_window import MainWindow
+from src.ui.signed_rename_window import SignedRenameWindow
+
+
+class AppWindow(QWidget):
+    def __init__(self):
+        super().__init__()
+
+        self.setWindowTitle("PPPL PDF Splitter - Multi Mode")
+        self.setMinimumSize(1050, 780)
+
+        tabs = QTabWidget()
+        tabs.setTabPosition(QTabWidget.North)
+        tabs.setMovable(False)
+
+        splitter_tab = MainWindow()
+        signed_tab = SignedRenameWindow()
+
+        tabs.addTab(splitter_tab, "PDF Splitter")
+        tabs.addTab(signed_tab, "Signed Rename ZIP")
+
+        tabs.setStyleSheet("""
+            QTabWidget::pane { border: 1px solid rgba(255,255,255,0.12); }
+            QTabBar::tab {
+                background: #0f172a;
+                color: #e5e7eb;
+                padding: 8px 14px;
+                margin-right: 4px;
+                border: 1px solid rgba(255,255,255,0.12);
+                border-bottom: none;
+                border-top-left-radius: 10px;
+                border-top-right-radius: 10px;
+            }
+            QTabBar::tab:selected {
+                background: #1d4ed8;
+                color: white;
+            }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.addWidget(tabs)
