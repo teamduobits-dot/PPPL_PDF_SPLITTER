@@ -165,4 +165,3 @@ class PdfProcessingWorker(QObject):
         })
         self.log.emit("Processing completed successfully.")
         self.finished.emit(True)
-

@@ -27,6 +27,9 @@ class MainWindow(QWidget):
         self.detected_invoice_ids: List[str] = []
         self.analysis_done: bool = False
 
+        # NEW: remembers the latest session output subfolder "<from> to <to>"
+        self._last_session_output_path: str = ""
+
         self._processing_thread: Optional[QThread] = None
         self._worker: Optional[PdfProcessingWorker] = None
 
@@ -217,6 +220,10 @@ class MainWindow(QWidget):
         self.lbl_estimate.setText("Analyzing PDF... (Phase 3)")
         self.txt_logs.clear()
         self.progress.setValue(0)
+
+        # NEW: reset session folder reference on new upload
+        self._last_session_output_path = ""
+
         self._set_busy_state()
 
         self._worker = PdfProcessingWorker(
@@ -314,9 +321,14 @@ class MainWindow(QWidget):
     def _on_split_complete(self, payload: dict):
         self.append_log("Processing completed successfully.")
         QMessageBox.information(self, "Success", "PDF Splitter finished.")
+
+        # NEW: store the session output folder from worker
+        self._last_session_output_path = payload.get("session_output_path", "") or ""
+
         self.btn_open_output.setEnabled(True)
         if self.chk_open_after.isChecked():
             self.on_open_output_folder()
+
         self._set_idle_state()
 
     def _on_duplicate_request(self, info: dict):
@@ -359,9 +371,12 @@ class MainWindow(QWidget):
             self._save_default_output_path(folder_path)
 
     def on_open_output_folder(self):
-        if self.selected_output_path and os.path.isdir(self.selected_output_path):
+        # NEW: open the latest session folder "<from> to <to>" if available
+        path_to_open = self._last_session_output_path or self.selected_output_path
+
+        if path_to_open and os.path.isdir(path_to_open):
             try:
-                os.startfile(self.selected_output_path)
+                os.startfile(path_to_open)
             except Exception as e:
                 QMessageBox.warning(self, "Cannot open folder", str(e))
 
@@ -374,6 +389,10 @@ class MainWindow(QWidget):
         self.txt_logs.clear()
         self.progress.setValue(0)
         self.analysis_done = False
+
+        # NEW: reset session folder
+        self._last_session_output_path = ""
+
         self._set_idle_state()
 
     def _save_default_output_path(self, folder_path: str):
